@@ -133,10 +133,10 @@ struct HomeView: View {
                     Text("Market")
                 }
 
-            TaskView()
+            SellView()
                 .tabItem {
                     Image(systemName: "checkmark.circle")
-                    Text("Task")
+                    Text("Sell")
                 }
 
             ProfileView()
@@ -159,11 +159,14 @@ struct VendorView: View {
 struct Product: Identifiable, Codable {
     var id: UUID { UUID() } // You can replace this with your own unique ID field
     let item: String
-    let quantity: Int
+    let quantity: String // As the database shows quantity as varchar
     let industry: String
     let email: String
     let supply: String
+    let price: String
 }
+
+
 
 // Create a view to display the market items
 struct MarketView: View {
@@ -187,7 +190,7 @@ struct MarketView: View {
                     }
                     .padding()
                 }
-                .navigationTitle("Market View")
+                .navigationTitle("Mercado")
             }
         }
         .onAppear(perform: fetchProducts)
@@ -199,16 +202,15 @@ struct MarketView: View {
 
         Task {
             do {
-                // Fetching data from Supabase (make sure to match your table and fields)
+                // Fetch data from Supabase
                 let response = try await supabase
                     .from("product")
                     .select("*")
                     .execute()
                 
-                // Use response.data directly
                 let jsonData = response.data
                 
-                // Decode response to array of products
+                // Decode response into array of Product
                 let products = try JSONDecoder().decode([Product].self, from: jsonData)
                 self.products = products
                 
@@ -246,7 +248,13 @@ struct ProductCardView: View {
                 Text("Supply: \(product.supply)")
             }
             .font(.subheadline)
+            .padding(.bottom, 2)
 
+            // New line to display price
+            HStack {
+                Text("Price: \(product.price)")
+                    .font(.subheadline)
+            }
         }
         .padding()
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.white).shadow(radius: 5))
@@ -260,12 +268,122 @@ struct MarketView_Previews: PreviewProvider {
     }
 }
 
-struct TaskView: View {
+struct SellView: View {
+    @State private var item: String = ""
+    @State private var quantity: String = ""
+    @State private var industry: String = ""
+    @State private var email: String = ""
+    @State private var supply: String = ""
+    @State private var price: String = "" // New state for price
+    
+    @State private var statusMessage: String? = nil
+
     var body: some View {
-        Text("Task Page")
-            .font(.largeTitle)
+        VStack(spacing: 20) {
+            Text("Sell Your Product")
+                .font(.title)
+                .bold()
+                .padding()
+
+            TextField("Item", text: $item)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+
+            TextField("Quantity", text: $quantity)
+                .keyboardType(.numberPad)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+
+            TextField("Industry", text: $industry)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+
+            TextField("Email", text: $email)
+                .keyboardType(.emailAddress)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+
+            TextField("Supply", text: $supply)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+            
+            TextField("Price", text: $price) // New TextField for price input
+                .keyboardType(.decimalPad)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+
+            Button(action: {
+                Task {
+                    await uploadItem()
+                }
+            }) {
+                Text("Sell Item")
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+                    .padding(.bottom, 50) // Add extra padding to avoid overlap with nav bar
+            }
+            
+
+
+            if let statusMessage = statusMessage {
+                Text(statusMessage)
+                    .foregroundColor(statusMessage.contains("Error") ? .red : .green)
+                    .padding()
+            }
+        }
+        .ignoresSafeArea(.keyboard, edges: .bottom) // Avoids keyboard overlap
+        .padding(.top, 50)
+    }
+
+    // Function to upload the item to Supabase
+    func uploadItem() async {
+        guard !item.isEmpty, !quantity.isEmpty, !industry.isEmpty, !email.isEmpty, !supply.isEmpty, !price.isEmpty else {
+            statusMessage = "All fields are required."
+            return
+        }
+
+        let supabase = SupabaseManager.shared.supabaseClient
+
+        do {
+            let response = try await supabase
+                .from("product") // Your Supabase table
+                .insert([
+                    "item": item,
+                    "quantity": quantity,
+                    "industry": industry,
+                    "email": email,
+                    "supply": supply,
+                    "price": price // Insert the new price field
+                ])
+                .execute()
+
+            if response.status == 201 || response.status == 204 {
+                statusMessage = "Item uploaded successfully!"
+                clearForm()
+            } else {
+                statusMessage = "Failed to upload item."
+            }
+        } catch {
+            statusMessage = "Error: \(error.localizedDescription)"
+        }
+    }
+
+    // Clear the form after successful submission
+    func clearForm() {
+        item = ""
+        quantity = ""
+        industry = ""
+        email = ""
+        supply = ""
+        price = "" // Clear the price field as well
     }
 }
+
+
 
 struct ProfileView: View {
     @State private var email: String = ""
