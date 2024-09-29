@@ -169,22 +169,56 @@ struct Product: Identifiable, Codable {
 
 
 // Create a view to display the market items
+class MarketViewModel: ObservableObject {
+    @Published var products: [Product] = []
+    @Published var isLoading = true
+    @Published var errorMessage: String? = nil
+
+    let supabase = SupabaseManager.shared.supabaseClient
+
+    init() {
+        Task {
+            await fetchProducts()
+        }
+    }
+
+    // Fetch the data from Supabase
+    func fetchProducts() async {
+        do {
+            // Fetch data from Supabase
+            let response = try await supabase
+                .from("product")
+                .select("*")
+                .execute()
+
+            let jsonData = response.data
+
+            // Decode response into array of Product
+            let products = try JSONDecoder().decode([Product].self, from: jsonData)
+            self.products = products
+
+            isLoading = false
+        } catch {
+            errorMessage = error.localizedDescription
+            isLoading = false
+        }
+    }
+}
+
 struct MarketView: View {
-    @State private var products: [Product] = []
-    @State private var isLoading = true
-    @State private var errorMessage: String?
+    @StateObject private var viewModel = MarketViewModel()
 
     var body: some View {
         NavigationView {
-            if isLoading {
+            if viewModel.isLoading {
                 ProgressView("Loading...")
-            } else if let errorMessage = errorMessage {
+            } else if let errorMessage = viewModel.errorMessage {
                 Text("Error: \(errorMessage)")
                     .foregroundColor(.red)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 20) {
-                        ForEach(products) { product in
+                        ForEach(viewModel.products) { product in
                             ProductCardView(product: product)
                         }
                     }
@@ -193,35 +227,9 @@ struct MarketView: View {
                 .navigationTitle("Mercado")
             }
         }
-        .onAppear(perform: fetchProducts)
-    }
-
-    // Fetch the data from Supabase
-    func fetchProducts() {
-        let supabase = SupabaseManager.shared.supabaseClient
-
-        Task {
-            do {
-                // Fetch data from Supabase
-                let response = try await supabase
-                    .from("product")
-                    .select("*")
-                    .execute()
-                
-                let jsonData = response.data
-                
-                // Decode response into array of Product
-                let products = try JSONDecoder().decode([Product].self, from: jsonData)
-                self.products = products
-                
-                isLoading = false
-            } catch {
-                errorMessage = error.localizedDescription
-                isLoading = false
-            }
-        }
     }
 }
+
 
 // Define the product card view
 struct ProductCardView: View {
