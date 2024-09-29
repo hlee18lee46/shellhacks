@@ -1,5 +1,36 @@
 import SwiftUI
 import GoogleSignIn
+import Supabase
+
+// SupabaseManager for managing database client (make sure this exists in your project)
+class SupabaseManager {
+    static let shared = SupabaseManager()
+
+    private init() {}
+
+    let supabaseClient = SupabaseClient(supabaseURL: URL(string: "https://qygphqztgfypivmlqtaj.supabase.co")!,
+                                        supabaseKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5Z3BocXp0Z2Z5cGl2bWxxdGFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mjc1NjI4NTgsImV4cCI6MjA0MzEzODg1OH0.7l_g2RRthoa4KoYH__SLcvTgKD-xLUsxKIHJPrnaU1c")
+}
+
+// Define a structure to match the table schema in Supabase
+struct User: Encodable {
+    let email: String
+}
+
+// Define async function to insert user data
+func createUserData(email: String) async throws {
+    let supabase = SupabaseManager.shared.supabaseClient
+    let user = User(email: email)
+    
+    // Inserting data into the "users" table using async/await
+    let response = try await supabase
+        .from("user") // Ensure your table name is correct
+        .insert(user)
+        .execute()
+
+    print("Insert success: \(response)")
+}
+
 
 struct ContentView: View {
     @State private var isSignedIn = false
@@ -68,7 +99,19 @@ struct ContentView: View {
             if let user = signInResult?.user {
                 isSignedIn = true
                 print("Signed in user: \(user.profile?.name ?? "No name")")
+                print("Signed in user: \(user.profile?.email ?? "No Email")")
                 errorMessage = nil // Clear error on success
+                let userEmail = user.profile?.email ?? "Unknown email"
+                Task {
+                    do {
+                        try await createUserData(email: userEmail)
+                    } catch {
+                        print("Error inserting user: \(error.localizedDescription)")
+                    }
+                }
+                // Perform any CRUD operation using the email
+                // Example: Insert user data
+
             }
         }
     }
@@ -112,10 +155,108 @@ struct VendorView: View {
     }
 }
 
+// Define the product structure
+struct Product: Identifiable, Codable {
+    var id: UUID { UUID() } // You can replace this with your own unique ID field
+    let item: String
+    let quantity: Int
+    let industry: String
+    let email: String
+    let supply: String
+}
+
+// Create a view to display the market items
 struct MarketView: View {
+    @State private var products: [Product] = []
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
     var body: some View {
-        Text("Market Page")
-            .font(.largeTitle)
+        NavigationView {
+            if isLoading {
+                ProgressView("Loading...")
+            } else if let errorMessage = errorMessage {
+                Text("Error: \(errorMessage)")
+                    .foregroundColor(.red)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 20) {
+                        ForEach(products) { product in
+                            ProductCardView(product: product)
+                        }
+                    }
+                    .padding()
+                }
+                .navigationTitle("Market View")
+            }
+        }
+        .onAppear(perform: fetchProducts)
+    }
+
+    // Fetch the data from Supabase
+    func fetchProducts() {
+        let supabase = SupabaseManager.shared.supabaseClient
+
+        Task {
+            do {
+                // Fetching data from Supabase (make sure to match your table and fields)
+                let response = try await supabase
+                    .from("product")
+                    .select("*")
+                    .execute()
+                
+                // Use response.data directly
+                let jsonData = response.data
+                
+                // Decode response to array of products
+                let products = try JSONDecoder().decode([Product].self, from: jsonData)
+                self.products = products
+                
+                isLoading = false
+            } catch {
+                errorMessage = error.localizedDescription
+                isLoading = false
+            }
+        }
+    }
+}
+
+// Define the product card view
+struct ProductCardView: View {
+    let product: Product
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text(product.item)
+                .font(.headline)
+                .padding(.bottom, 2)
+
+            HStack {
+                Text("Quantity: \(product.quantity)")
+                Spacer()
+                Text("Industry: \(product.industry)")
+            }
+            .font(.subheadline)
+            .padding(.bottom, 2)
+
+            HStack {
+                Text("Email: \(product.email)")
+                    .foregroundColor(.blue)
+                Spacer()
+                Text("Supply: \(product.supply)")
+            }
+            .font(.subheadline)
+
+        }
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white).shadow(radius: 5))
+        .padding(.horizontal)
+    }
+}
+
+struct MarketView_Previews: PreviewProvider {
+    static var previews: some View {
+        MarketView()
     }
 }
 
@@ -127,10 +268,133 @@ struct TaskView: View {
 }
 
 struct ProfileView: View {
+    @State private var email: String = ""
+    @State private var name: String = ""
+    @State private var industry: String = ""
+    @State private var state: String = ""
+    @State private var city: String = ""
+    @State private var address: String = ""
+    
+    // Placeholder for success/error messages
+    @State private var statusMessage: String = ""
+
     var body: some View {
-        Text("Profile Page")
-            .font(.largeTitle)
+        VStack(spacing: 20) {
+            TextField("Email", text: $email)
+                .disabled(true) // Assuming email is immutable
+
+            TextField("Name", text: $name)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+
+            TextField("Industry", text: $industry)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+
+            TextField("State", text: $state)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+
+            TextField("City", text: $city)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+
+            TextField("Address", text: $address)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+
+            Button(action: updateProfile) {
+                Text("Submit")
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+            }
+            
+            // Display status message
+            Text(statusMessage)
+                .foregroundColor(statusMessage.contains("Error") ? .red : .green)
+                .padding()
+        }
+        .padding()
+        .onAppear(perform: fetchProfile)
     }
+    
+    // Fetch the user's profile from Supabase
+    func fetchProfile() {
+        let supabase = SupabaseManager.shared.supabaseClient
+        let userEmail = "phocle4@gmail.com" // Replace with the actual user email
+
+        Task {
+            do {
+                // Attempt to fetch user profile by email
+                let response = try await supabase
+                    .from("user")
+                    .select("*")
+                    .eq("email", value: userEmail)
+                    .limit(1) // Limit the result to one row if multiple exist
+                    .execute()
+                
+                // Ensure the response is correctly parsed
+                if let json = try? JSONSerialization.jsonObject(with: response.data, options: []),
+                   let dataArray = json as? [[String: Any]],
+                   let data = dataArray.first {
+                    // Populate fields with fetched data
+                    email = data["email"] as? String ?? ""
+                    name = data["name"] as? String ?? ""
+                    industry = data["industry"] as? String ?? ""
+                    state = data["state"] as? String ?? ""
+                    city = data["city"] as? String ?? ""
+                    address = data["address"] as? String ?? ""
+                } else {
+                    statusMessage = "No profile found for this user"
+                }
+            } catch {
+                print("Error fetching profile: \(error)")
+                statusMessage = "Error fetching profile"
+            }
+        }
+    }
+    
+    // Update the user's profile in Supabase
+    func updateProfile() {
+        let supabase = SupabaseManager.shared.supabaseClient
+        let userEmail = "example@example.com" // Replace with the actual user email
+
+        Task {
+            do {
+                // Perform the update query
+                let response: PostgrestResponse<Void> = try await supabase
+                    .from("user")
+                    .update([
+                        "industry": industry,
+                        "state": state,
+                        "city": city,
+                        "address": address,
+                        "name": name
+
+                    ])
+                    .eq("email", value: userEmail) // Ensure the email field is used to find the user
+                    .execute()
+
+                // Check for successful status codes (200 or 204)
+                if response.status == 200 || response.status == 204 {
+                    statusMessage = "Profile updated successfully!"
+                    print("Update success, response status: \(response.status)")
+                } else {
+                    print("Unexpected response status: \(response.status), response: \(response)")
+                    statusMessage = "Unexpected response: \(response.status)"
+                }
+            } catch {
+                // Handle the duplicate key error (pkey violation)
+                if let error = error as? PostgrestError, error.code == "23505" {
+                    print("Error: Duplicate key violation: \(error.message)")
+                    statusMessage = "Duplicate key violation: Cannot modify primary key (email)."
+                } else {
+                    // Handle general error
+                    print("Error updating profile: \(error.localizedDescription)")
+                    statusMessage = "Error updating profile"
+                }
+            }
+        }
+    }
+
+
 }
 
 struct HomeView_Previews: PreviewProvider {
