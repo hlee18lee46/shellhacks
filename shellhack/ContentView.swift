@@ -11,24 +11,60 @@ class SupabaseManager {
     let supabaseClient = SupabaseClient(supabaseURL: URL(string: "https://qygphqztgfypivmlqtaj.supabase.co")!,
                                         supabaseKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5Z3BocXp0Z2Z5cGl2bWxxdGFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mjc1NjI4NTgsImV4cCI6MjA0MzEzODg1OH0.7l_g2RRthoa4KoYH__SLcvTgKD-xLUsxKIHJPrnaU1c")
 }
-
 // Define a structure to match the table schema in Supabase
-struct User: Encodable {
+struct User: Codable { // Conforms to both Encodable and Decodable
     let email: String
+    let name: String? // Optional fields
+    let industry: String?
 }
+
+// Define a product structure to match the product schema in Supabase
+
+struct Product: Identifiable, Codable {
+    let id: String // The 'id' field is explicitly provided in the response
+    let item: String
+    let quantity: String // The database shows quantity as varchar
+    let industry: String
+    let email: String
+    let supply: String?
+    let price: String
+}
+
+
 
 // Define async function to insert user data
 func createUserData(email: String) async throws {
     let supabase = SupabaseManager.shared.supabaseClient
-    let user = User(email: email)
-    
-    // Inserting data into the "users" table using async/await
-    let response = try await supabase
-        .from("user") // Ensure your table name is correct
-        .insert(user)
-        .execute()
 
-    print("Insert success: \(response)")
+    do {
+        // Step 1: Check if user already exists in the "user" table
+        let existingUserResponse = try await supabase
+            .from("user")
+            .select("*")
+            .eq("email", value: email)
+            .execute()
+
+        // Decode the response to check if the user exists
+        if let existingUsers = try? JSONDecoder().decode([User].self, from: existingUserResponse.data),
+           !existingUsers.isEmpty {
+            // User already exists, skip insertion
+            print("User already exists with email: \(email)")
+            return
+        }
+
+        // Step 2: If user does not exist, insert new user data
+        let user = User(email: email, name: nil, industry: nil) // Adjust fields as necessary
+        let insertResponse = try await supabase
+            .from("user")
+            .insert(user)
+            .execute()
+
+        print("Insert success: \(insertResponse)")
+        
+    } catch {
+        // Handle any errors that occur during the insertion process
+        print("Error inserting user: \(error.localizedDescription)")
+    }
 }
 
 
@@ -155,20 +191,6 @@ struct VendorView: View {
     }
 }
 
-// Define the product structure
-struct Product: Identifiable, Codable {
-    var id: UUID { UUID() } // You can replace this with your own unique ID field
-    let item: String
-    let quantity: String // As the database shows quantity as varchar
-    let industry: String
-    let email: String
-    let supply: String
-    let price: String
-}
-
-
-
-// Create a view to display the market items
 class MarketViewModel: ObservableObject {
     @Published var products: [Product] = []
     @Published var isLoading = true
@@ -178,53 +200,108 @@ class MarketViewModel: ObservableObject {
 
     init() {
         Task {
-            await fetchProducts()
+            await fetchProducts(industry: "All") // Fetch all products initially
         }
     }
 
-    // Fetch the data from Supabase
-    func fetchProducts() async {
+    // Fetch the data from Supabase based on industry
+    func fetchProducts(industry: String) async {
+        // Ensure updates happen on the main thread
+        DispatchQueue.main.async {
+            self.isLoading = true
+            self.errorMessage = nil
+            print("Fetching products for industry: \(industry)")
+        }
+
         do {
-            // Fetch data from Supabase
-            let response = try await supabase
+            var query = supabase
                 .from("product")
                 .select("*")
-                .execute()
 
-            let jsonData = response.data
+            // Apply industry filter if necessary
+            if industry != "All" {
+                query = query.eq("industry", value: industry)
+            }
+
+            // Execute the query and fetch products
+            let response = try await query.execute()
+
+            // Print the raw response to ensure data integrity
+            if let rawData = String(data: response.data, encoding: .utf8) {
+                print("Raw response data: \(rawData)")
+            }
 
             // Decode response into array of Product
-            let products = try JSONDecoder().decode([Product].self, from: jsonData)
-            self.products = products
+            let products = try JSONDecoder().decode([Product].self, from: response.data)
 
-            isLoading = false
+            // Update UI state on the main thread after fetching data
+            DispatchQueue.main.async {
+                self.products = products
+                self.isLoading = false // Set isLoading to false after data is fetched
+                print("Successfully fetched products: \(self.products.count) items")
+            }
         } catch {
-            errorMessage = error.localizedDescription
-            isLoading = false
+            // Handle errors and update UI on the main thread
+            DispatchQueue.main.async {
+                self.errorMessage = "Error fetching products: \(error.localizedDescription)"
+                self.isLoading = false // Set isLoading to false after error
+                print("Error fetching products: \(error.localizedDescription)")
+            }
         }
     }
 }
 
+// MarketView UI to display products
 struct MarketView: View {
     @StateObject private var viewModel = MarketViewModel()
 
+    @State private var selectedIndustry: String = "All" // Default to no filter
+    let industries = ["All", "Food", "Construction", "Others"]
+
     var body: some View {
         NavigationView {
-            if viewModel.isLoading {
-                ProgressView("Loading...")
-            } else if let errorMessage = viewModel.errorMessage {
-                Text("Error: \(errorMessage)")
-                    .foregroundColor(.red)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 20) {
-                        ForEach(viewModel.products) { product in
-                            ProductCardView(product: product)
-                        }
+            VStack {
+                // Filter Picker
+                Picker("Select Industry", selection: $selectedIndustry) {
+                    ForEach(industries, id: \.self) { industry in
+                        Text(industry)
                     }
-                    .padding()
                 }
-                .navigationTitle("Mercado")
+                .pickerStyle(SegmentedPickerStyle())
+                .padding()
+
+                // View Button to refresh the data
+                Button(action: {
+                    Task {
+                        await viewModel.fetchProducts(industry: selectedIndustry)
+                    }
+                }) {
+                    Text("View")
+                        .frame(minWidth: 0, maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                        .padding(.horizontal)
+                }
+
+                // Show loading indicator or error
+                if viewModel.isLoading {
+                    ProgressView("Loading...") // Show loading indicator when data is being fetched
+                } else if let errorMessage = viewModel.errorMessage {
+                    Text("Error: \(errorMessage)")
+                        .foregroundColor(.red)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 20) {
+                            ForEach(viewModel.products) { product in
+                                ProductCardView(product: product)
+                            }
+                        }
+                        .padding()
+                    }
+                    .navigationTitle("Market View")
+                }
             }
         }
     }
@@ -253,12 +330,11 @@ struct ProductCardView: View {
                 Text("Email: \(product.email)")
                     .foregroundColor(.blue)
                 Spacer()
-                Text("Supply: \(product.supply)")
+                Text("Supply: \(product.supply ?? "N/A")") // Handle optional 'supply' field
             }
             .font(.subheadline)
             .padding(.bottom, 2)
 
-            // New line to display price
             HStack {
                 Text("Price: \(product.price)")
                     .font(.subheadline)
