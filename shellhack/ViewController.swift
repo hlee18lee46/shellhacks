@@ -17,6 +17,31 @@ class ViewController: UIViewController {
                 print("Error signing in: \(error)")
                 return
             }
+            func fetchProducts() {
+                let supabase = SupabaseManager.shared.supabaseClient
+
+                Task {
+                    do {
+                        // Fetching data from Supabase (make sure to match your table and fields)
+                        let response = try await supabase
+                            .from("product")
+                            .select("*")
+                            .execute()
+                        
+                        // Use response.data directly
+                        let jsonData = response.data
+                        
+                        // Decode response to array of products
+                        let products = try JSONDecoder().decode([Product].self, from: jsonData)
+                        self.products = products
+                        
+                        isLoading = false
+                    } catch {
+                        errorMessage = error.localizedDescription
+                        isLoading = false
+                    }
+                }
+            }
 
             // Signed in successfully
             if let user = signInResult?.user {
