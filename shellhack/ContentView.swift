@@ -408,3 +408,91 @@ struct ContentView_Previews: PreviewProvider {
         ContentView()
     }
 }
+
+struct SellView: View {
+    @State private var item: String = ""
+    @State private var quantity: String = ""
+    @State private var industry: String = ""
+    @State private var email: String = ""
+    @State private var supply: String = ""
+    
+    @State private var statusMessage: String? = nil
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            TextField("Item", text: $item)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+            
+            TextField("Quantity", text: $quantity)
+                .keyboardType(.numberPad)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+            
+            TextField("Industry", text: $industry)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+            
+            TextField("Email", text: $email)
+                .keyboardType(.emailAddress)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+            
+            TextField("Supply", text: $supply)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
+            
+            Button(action: {
+                Task {
+                    await uploadItem()
+                }
+            }) {
+                Text("Sell Item")
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+            }
+
+            if let statusMessage = statusMessage {
+                Text(statusMessage)
+                    .foregroundColor(statusMessage.contains("Error") ? .red : .green)
+                    .padding()
+            }
+        }
+        .padding(.top, 50)
+    }
+    
+    // Function to upload the item to Supabase
+    func uploadItem() async {
+        guard let quantityValue = Int(quantity) else {
+            statusMessage = "Quantity must be a number."
+            return
+        }
+        
+        let supabase = SupabaseManager.shared.supabaseClient
+
+        do {
+            let response = try await supabase
+                .from("product")
+                .insert([
+                    "item": item,
+                    "quantity": String(quantityValue), // Convert Int to String
+                    "industry": industry,
+                    "email": email,
+                    "supply": supply
+                ])
+                .execute()
+
+            if response.status == 201 || response.status == 204 {
+                statusMessage = "Item uploaded successfully!"
+            } else {
+                statusMessage = "Failed to upload item."
+            }
+        } catch {
+            statusMessage = "Error: \(error.localizedDescription)"
+        }
+    }
+}
