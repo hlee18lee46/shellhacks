@@ -77,6 +77,9 @@ struct ContentView: View {
             HomeView() // Navigate to HomeView once signed in
         } else {
             VStack {
+                Text("Connect Latine")
+                    .font(.system(size: 28, weight: .bold)) // Larger, bold font
+                    .padding(.bottom, 20) // Space between text and logo
                 // Logo at the top
                 if let image = UIImage(named: "latinnect") {
                     Image(uiImage: image)
