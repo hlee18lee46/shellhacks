@@ -82,7 +82,7 @@ struct ContentView: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 200, height: 200)
+                        .frame(width: 260, height: 260)
                         .padding(.bottom, 50)
                 } else {
                     Text("Image not found")
@@ -184,10 +184,177 @@ struct HomeView: View {
     }
 }
 
+// Define a Vendor structure to match the fields in your user table
+struct Vendor: Identifiable, Codable {
+    var id: String { email } // Use email as the unique identifier
+    let email: String
+    let industry: String
+    let state: String
+    let city: String
+    let address: String
+    let name: String
+}
+
+// View model for fetching vendors from the user table in Supabase
+class VendorViewModel: ObservableObject {
+    @Published var vendors: [Vendor] = []
+    @Published var isLoading = true
+    @Published var errorMessage: String? = nil
+
+    let supabase = SupabaseManager.shared.supabaseClient
+
+    init() {
+        Task {
+            await fetchVendors(industry: "All") // Fetch all vendors initially
+        }
+    }
+
+    // Fetch the data from Supabase based on industry
+    func fetchVendors(industry: String) async {
+        DispatchQueue.main.async {
+            self.isLoading = true
+            self.errorMessage = nil
+            print("Fetching vendors for industry: \(industry)")
+        }
+
+        do {
+            var query = supabase
+                .from("user") // This is the updated table name (user)
+                .select("*")
+
+            // Apply industry filter if necessary
+            if industry != "All" {
+                query = query.eq("industry", value: industry)
+            }
+
+            // Execute the query and fetch vendors
+            let response = try await query.execute()
+
+            // Print the raw response for debugging
+            if let rawData = String(data: response.data, encoding: .utf8) {
+                print("Raw response data: \(rawData)")
+            }
+
+            // Decode response into array of Vendor
+            let vendors = try JSONDecoder().decode([Vendor].self, from: response.data)
+
+            // Update UI state on the main thread after fetching data
+            DispatchQueue.main.async {
+                self.vendors = vendors
+                self.isLoading = false // Set isLoading to false after data is fetched
+                print("Successfully fetched vendors: \(self.vendors.count) items")
+            }
+        } catch {
+            // Handle errors and update UI on the main thread
+            DispatchQueue.main.async {
+                self.errorMessage = "Error fetching vendors: \(error.localizedDescription)"
+                self.isLoading = false // Set isLoading to false after error
+                print("Error fetching vendors: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
+// VendorView UI to display vendors
 struct VendorView: View {
+    @StateObject private var viewModel = VendorViewModel()
+
+    @State private var selectedIndustry: String = "All" // Default to no filter
+    let industries = ["All", "Food", "Construction", "Others"]
+
     var body: some View {
-        Text("Vendor Page")
-            .font(.largeTitle)
+        NavigationView {
+            VStack(spacing: 10) { // Adjusted spacing between elements
+                // Title and View button in the same row
+                HStack {
+                    Text("Vendors")
+                        .font(.system(size: 24, weight: .bold)) // Adjusted font size
+                    Spacer()
+                    Button(action: {
+                        Task {
+                            await viewModel.fetchVendors(industry: selectedIndustry)
+                        }
+                    }) {
+                        Text("View")
+                            .font(.system(size: 16, weight: .semibold))
+                            .padding(8)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                }
+                .padding(.horizontal, 16) // Minimized horizontal padding for a compact view
+                .padding(.top, 10) // Minimal top padding
+
+                // Filter Picker
+                Picker("Select Industry", selection: $selectedIndustry) {
+                    ForEach(industries, id: \.self) { industry in
+                        Text(industry)
+                    }
+                }
+                .pickerStyle(SegmentedPickerStyle())
+                .padding(.horizontal, 16) // Adjusted horizontal padding
+                .padding(.bottom, 10) // Reduced padding below picker
+
+                // Show loading indicator or error
+                if viewModel.isLoading {
+                    ProgressView("Loading...") // Show loading indicator when data is being fetched
+                } else if let errorMessage = viewModel.errorMessage {
+                    Text("Error: \(errorMessage)")
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 16)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 15) { // Reduced space between cards
+                            ForEach(viewModel.vendors) { vendor in
+                                VendorCardView(vendor: vendor)
+                            }
+                        }
+                        .padding(.horizontal, 16) // Added padding to the sides of the cards
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Define the vendor card view
+struct VendorCardView: View {
+    let vendor: Vendor
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text(vendor.name)
+                .font(.headline)
+                .padding(.bottom, 2)
+
+            HStack {
+                Text("Industry: \(vendor.industry)")
+                Spacer()
+                Text("City: \(vendor.city), \(vendor.state)")
+            }
+            .font(.subheadline)
+            .padding(.bottom, 2)
+
+            HStack {
+                Text("Address: \(vendor.address)")
+                Spacer()
+                Text("Email: \(vendor.email)")
+                    .foregroundColor(.blue)
+            }
+            .font(.subheadline)
+        }
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white).shadow(radius: 5))
+        .padding(.horizontal)
+    }
+}
+
+
+
+struct VendorView_Previews: PreviewProvider {
+    static var previews: some View {
+        VendorView()
     }
 }
 
@@ -260,7 +427,28 @@ struct MarketView: View {
 
     var body: some View {
         NavigationView {
-            VStack {
+            VStack(spacing: 10) { // Adjusted spacing between elements
+                // Title and View button in the same row
+                HStack {
+                    Text("Market")
+                        .font(.system(size: 24, weight: .bold)) // Adjusted font size
+                    Spacer()
+                    Button(action: {
+                        Task {
+                            await viewModel.fetchProducts(industry: selectedIndustry)
+                        }
+                    }) {
+                        Text("View")
+                            .font(.system(size: 16, weight: .semibold))
+                            .padding(8)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                }
+                .padding(.horizontal, 16) // Minimized horizontal padding for a compact view
+                .padding(.top, 10) // Minimal top padding
+
                 // Filter Picker
                 Picker("Select Industry", selection: $selectedIndustry) {
                     ForEach(industries, id: \.self) { industry in
@@ -268,22 +456,8 @@ struct MarketView: View {
                     }
                 }
                 .pickerStyle(SegmentedPickerStyle())
-                .padding()
-
-                // View Button to refresh the data
-                Button(action: {
-                    Task {
-                        await viewModel.fetchProducts(industry: selectedIndustry)
-                    }
-                }) {
-                    Text("View")
-                        .frame(minWidth: 0, maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                        .padding(.horizontal)
-                }
+                .padding(.horizontal, 16) // Adjusted horizontal padding
+                .padding(.bottom, 10) // Reduced padding below picker
 
                 // Show loading indicator or error
                 if viewModel.isLoading {
@@ -291,22 +465,21 @@ struct MarketView: View {
                 } else if let errorMessage = viewModel.errorMessage {
                     Text("Error: \(errorMessage)")
                         .foregroundColor(.red)
+                        .padding(.horizontal, 16)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 20) {
+                        LazyVStack(spacing: 15) { // Reduced space between cards
                             ForEach(viewModel.products) { product in
                                 ProductCardView(product: product)
                             }
                         }
-                        .padding()
+                        .padding(.horizontal, 16) // Added padding to the sides of the cards
                     }
-                    .navigationTitle("Market View")
                 }
             }
         }
     }
 }
-
 
 // Define the product card view
 struct ProductCardView: View {
@@ -330,7 +503,7 @@ struct ProductCardView: View {
                 Text("Email: \(product.email)")
                     .foregroundColor(.blue)
                 Spacer()
-                Text("Supply: \(product.supply ?? "N/A")") // Handle optional 'supply' field
+                Text("Supply: \(product.supply)")
             }
             .font(.subheadline)
             .padding(.bottom, 2)
@@ -345,6 +518,7 @@ struct ProductCardView: View {
         .padding(.horizontal)
     }
 }
+
 
 struct MarketView_Previews: PreviewProvider {
     static var previews: some View {
@@ -363,39 +537,50 @@ struct SellView: View {
     @State private var statusMessage: String? = nil
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 10) { // Reduced spacing between elements
+            // Title with reduced font size and padding
             Text("Sell Your Product")
-                .font(.title)
-                .bold()
-                .padding()
+                .font(.system(size: 24, weight: .bold)) // Smaller font size
+                .padding(.top, 16) // Adjusted top padding
 
-            TextField("Item", text: $item)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding(.horizontal)
+            // TextFields with reduced padding, height and rounded border
+            Group {
+                TextField("Item", text: $item)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(height: 35) // Adjusted height
+                    .padding(.horizontal, 16)
 
-            TextField("Quantity", text: $quantity)
-                .keyboardType(.numberPad)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding(.horizontal)
+                TextField("Quantity", text: $quantity)
+                    .keyboardType(.numberPad)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(height: 35) // Adjusted height
+                    .padding(.horizontal, 16)
 
-            TextField("Industry", text: $industry)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding(.horizontal)
+                TextField("Industry", text: $industry)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(height: 35) // Adjusted height
+                    .padding(.horizontal, 16)
 
-            TextField("Email", text: $email)
-                .keyboardType(.emailAddress)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding(.horizontal)
+                TextField("Email", text: $email)
+                    .keyboardType(.emailAddress)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(height: 35) // Adjusted height
+                    .padding(.horizontal, 16)
 
-            TextField("Supply", text: $supply)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding(.horizontal)
-            
-            TextField("Price", text: $price) // New TextField for price input
-                .keyboardType(.decimalPad)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding(.horizontal)
+                TextField("Supply", text: $supply)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(height: 35) // Adjusted height
+                    .padding(.horizontal, 16)
 
+                TextField("Price", text: $price) // TextField for price input
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(height: 35) // Adjusted height
+                    .padding(.horizontal, 16)
+            }
+            .padding(.top, 8) // Adjusted spacing between the title and the fields
+
+            // Sell button with adjusted padding and smaller size
             Button(action: {
                 Task {
                     await uploadItem()
@@ -407,20 +592,18 @@ struct SellView: View {
                     .background(Color.blue)
                     .foregroundColor(.white)
                     .cornerRadius(10)
-                    .padding(.horizontal)
-                    .padding(.bottom, 50) // Add extra padding to avoid overlap with nav bar
+                    .padding(.horizontal, 16)
             }
-            
+            .padding(.bottom, 20) // Extra padding at the bottom to avoid nav bar overlap
 
-
+            // Status message for success or error
             if let statusMessage = statusMessage {
                 Text(statusMessage)
                     .foregroundColor(statusMessage.contains("Error") ? .red : .green)
-                    .padding()
+                    .padding(.top, 8)
             }
         }
         .ignoresSafeArea(.keyboard, edges: .bottom) // Avoids keyboard overlap
-        .padding(.top, 50)
     }
 
     // Function to upload the item to Supabase
@@ -501,7 +684,7 @@ struct ProfileView: View {
                 .textFieldStyle(RoundedBorderTextFieldStyle())
 
             Button(action: updateProfile) {
-                Text("Submit")
+                Text("Modify")
                     .padding()
                     .background(Color.blue)
                     .foregroundColor(.white)
