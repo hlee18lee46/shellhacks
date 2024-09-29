@@ -1,3 +1,5 @@
+Demo is viewable with demo.gif
+
 ##Inspiration
 
 The inspiration for Latinnect came from our passion to support small businesses in the Latine community by giving them a platform to connect with customers and other vendors. We noticed a gap in the digital marketplace, where many small, local Latine vendors struggle to showcase their products and reach broader audiences. We wanted to create a solution that empowers these businesses and celebrates Latine culture.
